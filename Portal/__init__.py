@@ -4,6 +4,7 @@ import json
 import bs4
 import pandas
 import urllib3
+import getpass
 HTTP = urllib3.PoolManager()
 urllib3.disable_warnings()
 
@@ -21,9 +22,13 @@ class PortalXKeyError(Error):
     """Initial PortalXKeyError Classes"""
     pass
 
-class UserInfo(object):
+class User(object):
     """Class to store user datas"""
-    def __init__(self, userID, password):
+    def __init__(self, userID="", password=""):
+        if not userID:
+            userID = input("User ID: ")
+        if not password:
+            password = getpass.getpass("Password: ")
         try:
             login_page = HTTP.request("POST",
                                       "https://portalx.yzu.edu.tw/PortalSocialVB/Login.aspx",

@@ -1,5 +1,5 @@
-# YZU-Portal-API
-A Customized Python API to Crawl Datas from YZU Student Portal
+# YZU-Portal-SDK
+A Python SDK for accessing YZU Student Portal
 
 # Introduction
 As Development Progress Delayed, README will not be written recently, please check [`Portal Crawler`](https://github.com/tomy0000000/YZU-Portal-API/blob/master/README.ipynb) Directly.

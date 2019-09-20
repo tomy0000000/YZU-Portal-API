@@ -1,26 +1,27 @@
-"""Core System of YZU Portal"""
-import re
+"""Main User Class"""
+import getpass
+import io
 import json
+import re
 import bs4
 import pandas
-import urllib3
-import getpass
-HTTP = urllib3.PoolManager()
-urllib3.disable_warnings()
-
-UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_13_0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome\
-/61.0.3163.100 Safari/537.36"
-UAHEAD = {"User-Agent":UA}
-
-class Error(Exception):
-    """Initial Error Classes"""
+import random
+from PIL import Image
+try:
+    import IPython.core.display
+except ImportError:
     pass
-class LoginError(Error):
-    """Initial LoginError Classes"""
-    pass
-class PortalXKeyError(Error):
-    """Initial PortalXKeyError Classes"""
-    pass
+from .errors import LoginError, PortalXKeyError
+from .utils import (
+    UAHEAD,
+    HTTP,
+    generate_header,
+    get_post_page,
+    get_post_content,
+    parse_homework_description,
+    rename_class,
+    switch_sub
+)
 
 class User(object):
     """Class to store user datas"""
@@ -32,7 +33,7 @@ class User(object):
         try:
             login_page = HTTP.request("POST",
                                       "https://portalx.yzu.edu.tw/PortalSocialVB/Login.aspx",
-                                      fields={
+                                      fields={ # TODO: Make this dynamic
                                           "__VIEWSTATE":"/wEPDwUKLTkyMDk2NTcxNA9kFgICAw9kFgQCAQ8WAh4JaW5uZXJodG1sBfICPGRpdiBzdHlsZT0nY29sb3I6IHJlZDsgZm9udC13ZWlnaHQ6IGJvbGQ7Jz7luLPomZ/ngrpzIOWKoOS4iuaCqOeahOWtuOiZn++8jOWmgnM5MjExMDE8L2Rpdj48ZGl2IHN0eWxlPSdjb2xvcjogcmVkOyBmb250LXdlaWdodDogYm9sZDsnPuWvhueivOeCuiDouqvku73oqLzlrZfomZ8o6Iux5paH5a2X6KuL5aSn5a+rKTwvZGl2PjxkaXYgc3R5bGU9J2NvbG9yOiBibGFjazsnPueZu+WFpeW+jOiri+WLmeW/heS/ruaUueaCqOeahOWvhueivDwvZGl2PjxiciAvPjxkaXYgc3R5bGU9J2NvbG9yOiBibGFjazsnPuW/mOiomOWvhueivO+8muiri+mAlea0veWcluabuOmkqOarg+WPsCjlgpnorYnku7Yp77yM5oiW6Zu75qCh5YWn5YiG5qmfMjMyMTwvZGl2PmQCAw9kFgZmD2QWAmYPZBYCZg8PFgQeCENzc0NsYXNzBQ5Mb2dpbkJhY2s4MDBfWR4EXyFTQgICZBYCZg9kFgJmD2QWAgIBDw8WBB8BBQ5Mb2dpbkJhY2syNzBfWR8CAgJkFgJmD2QWAmYPZBYKAgEPDxYCHgRUZXh0BQbluLPomZ9kZAIFDw8WAh8DBQblr4bnorxkZAIJDw8WBB4HVG9vbFRpcAUPRW5nbGlzaCBWZXJzaW9uHghJbWFnZVVybAUcLi9JbWFnZXMvSWNvbnMvVmVyc2lvblRXLnBuZxYCHgdvbmNsaWNrBRVDaGFuZ2VMYW5ndWFnZSgnVFcnKTtkAgsPDxYCHwMFBueZu+WFpWRkAg0PDxYCHwMFDioq5paw55Sf5rOo5oSPZGQCAQ9kFgJmDw8WBB8BBQ90YWJDZWxsTWlkZGxlX1kfAgICZBYEAgMPDxYEHwEFDnRhYmxlSG90UGFnZV9ZHwICAmQWAmYPZBYCZg9kFgJmDw8WAh8DBQznhrHploDlsIjpoIFkZAIFDw8WBB8BBRF0YWJsZUhvdFBhZ2VFbmRfWR8CAgJkZAIDD2QWAmYPZBYCZg8PFgQfAQUNTG9naW5Gb290ZXJfWR8CAgJkZGTyT2gnXdKy6dcClhG2S9KvWwKitQ==",
                                           "__VIEWSTATEGENERATOR":"4F5352E6",
                                           "__EVENTVALIDATION":"/wEdAAYZE+NrQEMnXQZ2m08gbZJj1vGYFjrtzIuId5C42O0AzRaVgZp528BwL4Heg6ju5IFPJEHWQZAV39IrTgU3OMCuz9Epgz+OXGhhMky+n/+RyLga9dtgamGDPrZlwtr3L501mImYpIoFcNzIUq9OwA27skCHhA==",
@@ -135,7 +136,7 @@ class User(object):
             table_soup = bs4.BeautifulSoup(page.data.decode("utf-8"), "lxml").select(".table_1")[0]
             for each in table_soup.find_all("tr", class_=""):
                 for each_2 in each.find_all("td")[1:4]:
-                    if each_2.find("a") != None:
+                    if each_2.find("a") is not None:
                         each_2.string = each_2.find("a")["href"].replace("..", "https://portalx.yzu.edu.tw/PortalSocialVB")
             table = pandas.read_html(str(table_soup), header=0, index_col="大綱說明")[0]
             table = table.drop(["下載次數"], axis=1)
@@ -237,73 +238,204 @@ class User(object):
                     break
                 out.write(data)
         stream.release_conn()
+    def init_class_select_agent(self):
+        from .select.utils import (
+            baitFramePage,
+            record_soup_and_params,
+            refresh_CosList,
+            refresh_CosTable
+        )
+        # Get Session Key
+        entry_page = HTTP.request("GET",
+                                  "https://isdna1.yzu.edu.tw/Cnstdsel/Index.aspx",
+                                  headers=UAHEAD)
+        entry_soup = bs4.BeautifulSoup(entry_page.data.decode("utf-8"), "lxml")
+        self.class_select_key = [i for i in entry_page.headers["Set-Cookie"].split(", ") if i.find("ASP.NET") != -1][0].split(";")[0].split("=")[1]
+        record_soup_and_params(self, entry_soup, "index")
 
-def generate_header(key):
-    """Generate a Header with User Agent & Provided Portal Key"""
-    return {
-        "User-Agent":UA,
-        "Cookie":"ASP.NET_SessionId="+key
-    }
-def baiting(key, link):
-    """Send request to a page without fetching any response"""
-    try:
-        if "您尚未登入個人portal！" in HTTP.request("GET", link,
-                                            headers=generate_header(key)).data.decode("utf-8"):
-            raise PortalXKeyError
-    except PortalXKeyError:
-        raise
-def switch_sub(key, class_id):
-    """Switch fetching location to Desired Class Page"""
-    baiting(key, "https://portalx.yzu.edu.tw/PortalSocialVB/FPage/FirstToPage.aspx?PageID="+str(class_id))
-def rename_class(class_name):
-    """Rename Class into Proper Style"""
-    return class_name.replace("）", ")").replace("（", " (").replace("-", " - ")
-def parse_homework_description(link_tag_title, item):
-    """Parsing Homework Description"""
-    if item in link_tag_title:
-        start = link_tag_title.find(item)
-        end = link_tag_title.find("\r", start+1)
-        if end == -1:
-            return link_tag_title[start+len(item):]
-        return link_tag_title[start+len(item):end]
-    else:
-        return None
-def get_post_page(key, page_num):
-    """Get post in further pages"""
-    req_body = json.dumps({
-        "PageIndex": page_num
-        }).encode('utf-8')
-    page = HTTP.request("POST",
-                        "https://portalx.yzu.edu.tw/PortalSocialVB/FMain/PostWall.aspx/GetPostWall",
-                        headers={
-                            "User-Agent":UA,
-                            "Cookie": "ASP.NET_SessionId="+key,
-                            "Content-Type": "application/json"
-                        },
-                        body=req_body)
-    soup = bs4.BeautifulSoup(json.loads(page.data.decode("utf-8"))["d"], "lxml")
-    return soup.select(".PanelPost")
-def get_post_content(key, post_id):
-    """Get content from post"""
-    req_body = json.dumps({
-        "ParentPostID": post_id,
-        "pageShow": "0"
-        }).encode('utf-8')
-    page = HTTP.request("POST",
-                        "https://portalx.yzu.edu.tw/PortalSocialVB/FMain/PostWall.aspx/divParentInnerHtml",
-                        headers={
-                            "User-Agent":UA,
-                            "Cookie": "ASP.NET_SessionId="+key,
-                            "Content-Type": "application/json"
-                        },
-                        body=req_body)
-    soup = bs4.BeautifulSoup(json.loads(page.data.decode("utf-8"))["d"], "lxml")
-    post = soup.select("#divPostBody"+post_id)[0]
-    data = {
-        "Text": soup.select("#txtPostBody"+post_id)[0].string,
-        "Attachment": {
-            "Name": post.find_all("a", class_="")[-1].text,
-            "Link": post.find_all("a", class_="")[-1]["href"].replace("..", "https://portalx.yzu.edu.tw/PortalSocialVB")
-        } if len(post.find_all("a", class_="")) != 0 else None
-    }
-    return data
+        # Get Verifications
+        pic_page = HTTP.request("GET",
+                                "https://isdna1.yzu.edu.tw/Cnstdsel/SelRandomImage.aspx",
+                                headers = generate_header(self.class_select_key))
+        captcha_img = Image.open(io.BytesIO(pic_page.data))
+        try:
+            IPython.core.display.display(IPython.core.display.Image(data=pic_page.data))
+        except:
+            captcha_img.show()
+
+        # Login
+        captcha = input()
+        fields = self.param["parameters"]["index"].copy()
+        fields["DPL_SelCosType"] = "107-2-2" # TODO: Make this dynamic
+        fields["Txt_User"] = self.user_id
+        fields["Txt_Password"] = self.__password
+        fields["Txt_CheckCode"] = captcha
+        fields["btnOK"] = "確定"
+        login_page = HTTP.request_encode_body("POST",
+                                              "https://isdna1.yzu.edu.tw/Cnstdsel/Index.aspx",
+                                              fields=fields,
+                                              headers=generate_header(self.class_select_key),
+                                              encode_multipart=False)
+        login_soup = bs4.BeautifulSoup(login_page.data.decode("utf-8"), "lxml")
+        record_soup_and_params(self, login_soup, "index")
+        
+        # Check Login
+        if "驗證碼錯誤" in str(login_soup):
+            raise ValueError("Validation Failed!!!")
+        baitFramePage(self.class_select_key)
+        if not refresh_CosList(self) and not refresh_CosTable(self):
+            raise ValueError("Login Failed!!!")
+        degree = self.param["soups"]["CosList"].select("#Lab_DeptDegree")[0].string
+        name = self.param["soups"]["CosList"].select("#Lab_NameStdno")[0].string
+    def join_class_via_Time(self, course_code, course_class, time):
+        from .select.utils import (
+            record_soup_and_params,
+            refresh_CosTable
+        )
+        # Fetcing Command
+        list_page = HTTP.request("GET",
+                                 "https://isdna1.yzu.edu.tw/Cnstdsel/SelCurr/CosList.aspx?schd_time=" + time,
+                                 headers=generate_header(self.class_select_key))
+        list_soup = bs4.BeautifulSoup(list_page.data.decode("utf-8"), "lxml")
+        if "已經逾時,請重新執行!" in str(list_soup):
+            return False
+        record_soup_and_params(self, list_soup, "CosList")
+        cmd = self.param["soups"]["CosList"].find_all("input", id=re.compile("^SelCos,"+course_code+","+course_class))[0].get("id")
+        
+        # Select Action 1
+        fields = self.param["parameters"]["CosList"].copy()
+        fields[cmd+".x"] = random.randint(0, 9)
+        fields[cmd+".y"] = random.randint(0, 12)
+        list_page = HTTP.request_encode_body("POST",
+                                 "https://isdna1.yzu.edu.tw/Cnstdsel/SelCurr/CosList.aspx?schd_time=" + time,
+                                 fields=fields,
+                                 headers=generate_header(self.class_select_key),
+                                 encode_multipart=False)
+        list_soup = bs4.BeautifulSoup(list_page.data.decode("utf-8"), "lxml")
+        if "已經逾時,請重新執行!" in str(list_soup):
+            return False
+        record_soup_and_params(self, list_soup, "CosList")
+        
+        # Select Action 2
+        select_page = HTTP.request("GET",
+                                 "https://isdna1.yzu.edu.tw/Cnstdsel/SelCurr/CurrMainTrans.aspx",
+                                 fields={
+                                     "mSelType": "SelCos",
+                                     "mUrl": cmd+",B,"
+                                 }, headers=generate_header(self.class_select_key))
+        select_soup = bs4.BeautifulSoup(select_page.data.decode("utf-8"), "lxml")
+        if "已經逾時,請重新執行!" in str(select_soup):
+            return False
+        record_soup_and_params(self, select_soup, "CurrMainTrans")
+        
+        # Parse Message
+        msg_parser = re.compile(r"alert\(\'(.*)\'\)\;")
+        msg = msg_parser.search(select_soup.find_all("script")[0].string).group(1)
+        print(msg)
+        
+        # Cleanup & Verify Selection
+        if not refresh_CosTable(self):
+            print("Error")
+            return False
+        if course_code+","+course_class in str(self.param["soups"]["CosTable"]):
+            return True
+        return False
+    def join_class_via_Dept(self, course_code, course_class, dept, degree):
+        """
+        course_code   課號      CS303
+        course_class  班別      A
+        dept          系別代號   304  ->資工系
+        degree        年級      2
+        """
+        from .select.utils import (
+            record_soup_and_params,
+            refresh_CosTable
+        )
+        
+        # Fetching Command
+        if course_code+","+course_class not in self.param["soups"]["CosList"]:
+            fields = self.param["parameters"]["CosList"].copy()
+            fields["DPL_DeptName"] = dept
+            fields["DPL_Degree"] = degree
+            list_page = HTTP.request_encode_body("POST",
+                                     "https://isdna1.yzu.edu.tw/Cnstdsel/SelCurr/CosList.aspx",
+                                     fields=fields,
+                                     headers=generate_header(self.class_select_key),
+                                     encode_multipart=False)
+            list_soup = bs4.BeautifulSoup(list_page.data.decode("utf-8"), "lxml")
+            if "已經逾時,請重新執行!" in str(list_soup):
+                return False
+            record_soup_and_params(self, list_soup, "CosList")
+        cmd = self.param["soups"]["CosList"].find_all("input", id=re.compile("^SelCos,"+course_code+","+course_class))[0].get("id")
+        
+        # Select Action 1
+        fields = self.param["parameters"]["CosList"].copy()
+        fields["DPL_DeptName"] = dept
+        fields["DPL_Degree"] = degree
+        fields[cmd+".x"] = random.randint(0, 9)
+        fields[cmd+".y"] = random.randint(0, 12)
+        list_page = HTTP.request_encode_body("POST",
+                                 "https://isdna1.yzu.edu.tw/Cnstdsel/SelCurr/CosList.aspx",
+                                 fields=fields,
+                                 headers=generate_header(self.class_select_key),
+                                 encode_multipart=False)
+        list_soup = bs4.BeautifulSoup(list_page.data.decode("utf-8"), "lxml")
+        if "已經逾時,請重新執行!" in str(list_soup):
+            return False
+        record_soup_and_params(self, list_soup, "CosList")
+        
+        # Select Action 2
+        select_page = HTTP.request("GET",
+                                 "https://isdna1.yzu.edu.tw/Cnstdsel/SelCurr/CurrMainTrans.aspx",
+                                 fields={
+                                     "mSelType": "SelCos",
+                                     "mUrl": cmd+",B,"
+                                 }, headers=generate_header(self.class_select_key))
+        select_soup = bs4.BeautifulSoup(select_page.data.decode("utf-8"), "lxml")
+        if "已經逾時,請重新執行!" in str(select_soup):
+            return False
+        record_soup_and_params(self, select_soup, "CurrMainTrans")
+        
+        # Parse Message
+        msg_parser = re.compile(r"alert\(\'(.*)\'\)\;")
+        msg = msg_parser.search(select_soup.find_all("script")[0].string).group(1)
+        print(msg)
+        
+        # Cleanup & Verify Selection
+        if not refresh_CosTable(self):
+            return False
+        if course_code+","+course_class in str(self.param["soups"]["CosTable"]):
+            return True
+        return False
+    def leave_class(self, course_code, course_class):
+        from .select.utils import (
+            record_soup_and_params,
+            refresh_CosTable
+        )
+        # Fetching Command
+        cmd = re.search(r"TmpDelCos\([\"'](DelCos," + course_code + "," + course_class + ".*?)[\"']\)", str(self.param["soups"]["CosTable"])).group(1)
+        
+        # Action
+        select_page = HTTP.request("GET",
+                                 "https://isdna1.yzu.edu.tw/Cnstdsel/SelCurr/CurrMainTrans.aspx",
+                                 fields={
+                                     "mSelType": "DelCos",
+                                     "mUrl": cmd
+                                 }, headers=generate_header(self.class_select_key))
+        select_soup = bs4.BeautifulSoup(select_page.data.decode("utf-8"), "lxml")
+        if "已經逾時,請重新執行!" in str(select_soup):
+            return False
+        record_soup_and_params(self, select_soup, "CurrMainTrans")
+        
+        # Parse Message
+        msg_parser = re.compile(r"alert\(\'(.*)\'\)\;")
+        msg = msg_parser.search(select_soup.find_all("script")[0].string).group(1)
+        print(msg)
+        
+        # Cleanup & Verify Selection
+        if not refresh_CosTable(self):
+            print("Error")
+            return False
+        if course_code+","+course_class not in str(self.param["soups"]["CosTable"]):
+            return True
+        return False

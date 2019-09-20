@@ -1,16 +1,14 @@
 # YZU-Portal-SDK
-A Python SDK for accessing YZU Student Portal
+A Python SDK for accessing [YZU Portal System](https://portalx.yzu.edu.tw)
 
 # Introduction
-As Development Progress Delayed, README will not be written recently, please check [`Portal Crawler`](https://github.com/tomy0000000/YZU-Portal-API/blob/master/README.ipynb) Directly.
+This is a minimum viable product I developed to fulfilled my needs of task management and learning Python at the same time.
 
-# Progress
-* 2017-11-17
-	* Project Prototype was uploaded to GitHub
-	* Complete Local Development Enviroonment Setup
-	* Current Feature: 
-		* Login (Debug Required)
-		* Switch between different Subject Page
-		* Get Material List
-* 2019-01-08
-    * New Secret Features in Development, but won't be open-source recently
+Therefore, most of the codes were written in non-mature, dis-Pythonic way.
+
+Also, since I've left YZU, this project is now permentaly abandoned, but if you're interested in any part of this repo, please don't hesitate to submit issue, I'll try my best to help you make it works.
+
+# Usage
+
+See [`Demo.ipynb`](./Demo.ipynb)
+
